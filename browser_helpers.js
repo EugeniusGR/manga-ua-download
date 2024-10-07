@@ -2,7 +2,14 @@ const path = require('path');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const axios = require('axios');
-const { downloadImage } = require('./helpers');
+const { CookieJar } = require('tough-cookie');
+const { wrapper } = require('axios-cookiejar-support');
+
+axios.defaults.withCredentials = true
+
+const jar = new CookieJar();
+const client = wrapper(axios.create({ jar }));
+
 
 const startParsing = async (url, showProgress, sendFile) => {
   const { html } = await createAndNavigateTo(url);
@@ -18,7 +25,7 @@ const startParsing = async (url, showProgress, sendFile) => {
 
 const createAndNavigateTo = async (url) => {
   try {
-    const res = await axios.get(url, {
+    const res = await client.get(url, {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -59,7 +66,7 @@ const getImages = async (newsId, siteLoginHash) => {
   let imageUrls = [];
 
   try {
-    const response = await axios.get(
+    const response = await client.get(
       `https://manga.in.ua/engine/ajax/controller.php?mod=load_chapters_image&news_id=${newsId}&action=show&user_hash=${siteLoginHash}`,
       {
         headers: {
@@ -131,6 +138,17 @@ function sanitizePath(input) {
 
   // Replace invalid characters with an empty string
   return input.replace(invalidCharsRegex, '');
+}
+
+async function downloadImage(url) {
+  const response = await client.get(url, {
+    responseType: 'arraybuffer',
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    },
+  });
+  return response.data;
 }
 
 module.exports = {

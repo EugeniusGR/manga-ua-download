@@ -12,6 +12,7 @@ const getMessage = async (msg, bot) => {
       // get url from parse
       const url = msg.text.split(' ')[1];
       if (url) {
+        await bot.sendMessage(msg.chat.id, `Починаю парсинг ${url}...`);
         startParsing(
           url,
           () => showProgress(bot, msg.chat.id),
