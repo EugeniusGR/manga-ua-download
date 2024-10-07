@@ -26,6 +26,8 @@ const createAndNavigateTo = async (url) => {
     });
     const html = res.data;
 
+    console.log('res', res)
+
     return { html };
   } catch (error) {
     console.error('Error fetching page:', error.message);
@@ -33,10 +35,7 @@ const createAndNavigateTo = async (url) => {
   }
 };
 
-const getRequiredData = async (html) => {
-  // Get the entire page content as a string
-  const pageContent = await html;
-
+const getRequiredData = async (pageContent) => {
   // Use a regex to find the site_login_hash directly from the HTML
   const match = pageContent.match(/var\s+site_login_hash\s*=\s*'([^']+)'/);
   const siteLoginHash = match ? match[1] : null;
