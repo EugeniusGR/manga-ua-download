@@ -18,7 +18,12 @@ const startParsing = async (url, showProgress, sendFile) => {
 
 const createAndNavigateTo = async (url) => {
   try {
-    const res = await axios.get(url);
+    const res = await axios.get(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      },
+    });
     const html = res.data;
 
     return { html };
@@ -38,12 +43,12 @@ const getRequiredData = async (html) => {
 
   console.log('site_login_hash:', siteLoginHash);
 
-  // find the 'data-news_id= in html and get the value 
+  // find the 'data-news_id= in html and get the value
   const newsId = pageContent.match(/data-news_id="(\d+)"/)[1];
 
   console.log('data-news_id:', newsId);
 
-  // get page's title 
+  // get page's title
   const title = pageContent.match(/<title>(.*?)<\/title>/)[1];
   const mangaName = sanitizePath(title.split(' читати українською')[0]);
   console.log('mangaName', mangaName);
@@ -56,12 +61,20 @@ const getImages = async (newsId, siteLoginHash) => {
 
   try {
     const response = await axios.get(
-      `https://manga.in.ua/engine/ajax/controller.php?mod=load_chapters_image&news_id=${newsId}&action=show&user_hash=${siteLoginHash}`
+      `https://manga.in.ua/engine/ajax/controller.php?mod=load_chapters_image&news_id=${newsId}&action=show&user_hash=${siteLoginHash}`,
+      {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        },
+      }
     );
 
     const htmlContent = response.data;
 
-    const imageUrls = htmlContent.match(/data-src="([^"]+)"/g).map((src) => src.match(/data-src="([^"]+)"/)[1]);
+    const imageUrls = htmlContent
+      .match(/data-src="([^"]+)"/g)
+      .map((src) => src.match(/data-src="([^"]+)"/)[1]);
 
     return imageUrls;
   } catch (error) {
