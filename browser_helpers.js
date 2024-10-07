@@ -1,4 +1,3 @@
-const puppeteer = require('puppeteer');
 const path = require('path');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
@@ -6,36 +5,32 @@ const axios = require('axios');
 const { downloadImage } = require('./helpers');
 
 const startParsing = async (url, showProgress, sendFile) => {
-  const { page, browser } = await createAndNavigateTo(url);
+  const { html } = await createAndNavigateTo(url);
 
-  const { newsId, siteLoginHash, mangaName } = await getRequiredData(page);
+  const { newsId, siteLoginHash, mangaName } = await getRequiredData(html);
 
-  const imageUrls = await getImages(page, newsId, siteLoginHash);
+  const imageUrls = await getImages(newsId, siteLoginHash);
 
   const filePath = await createPDFFile(imageUrls, showProgress, mangaName);
 
   sendFile(filePath);
-
-  await browser.close();
 };
 
 const createAndNavigateTo = async (url) => {
-  const browser = await puppeteer.launch({
-    headless: true,
-    defaultViewport: null,
-    executablePath:
-      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  });
-  const page = await browser.newPage();
+  try {
+    const res = await axios.get(url);
+    const html = res.data;
 
-  // Navigate to the site
-  await page.goto(url, { waitUntil: 'networkidle0' });
-  return { page, browser };
+    return { html };
+  } catch (error) {
+    console.error('Error fetching page:', error.message);
+    return { error: error.message };
+  }
 };
 
-const getRequiredData = async (page) => {
+const getRequiredData = async (html) => {
   // Get the entire page content as a string
-  const pageContent = await page.content();
+  const pageContent = await html;
 
   // Use a regex to find the site_login_hash directly from the HTML
   const match = pageContent.match(/var\s+site_login_hash\s*=\s*'([^']+)'/);
@@ -43,23 +38,20 @@ const getRequiredData = async (page) => {
 
   console.log('site_login_hash:', siteLoginHash);
 
-  const newsId = await page.evaluate(() => {
-    // Find the div with id="comics"
-    const comicsDiv = document.querySelector('div#comics');
-    // If the div exists, return the value of the data-news_id attribute
-    return comicsDiv ? comicsDiv.getAttribute('data-news_id') : null;
-  });
+  // find the 'data-news_id= in html and get the value 
+  const newsId = pageContent.match(/data-news_id="(\d+)"/)[1];
 
   console.log('data-news_id:', newsId);
 
   // get page's title 
-  const title = await page.title();
+  const title = pageContent.match(/<title>(.*?)<\/title>/)[1];
   const mangaName = sanitizePath(title.split(' читати українською')[0]);
+  console.log('mangaName', mangaName);
 
   return { newsId, siteLoginHash, mangaName };
 };
 
-const getImages = async (page, newsId, siteLoginHash) => {
+const getImages = async (newsId, siteLoginHash) => {
   let imageUrls = [];
 
   try {
@@ -68,28 +60,10 @@ const getImages = async (page, newsId, siteLoginHash) => {
     );
 
     const htmlContent = response.data;
-    // Extract the image sources from the response data
-    imageUrls = await page.evaluate((html) => {
-      // Create a temporary element to hold the HTML
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = html;
 
-      // Find all the img tags within the ul.xfieldimagegallery.loadcomicsimages
-      const images = tempDiv.querySelectorAll(
-        'ul.xfieldimagegallery.loadcomicsimages img'
-      );
-      const srcArray = [];
+    const imageUrls = htmlContent.match(/data-src="([^"]+)"/g).map((src) => src.match(/data-src="([^"]+)"/)[1]);
 
-      // Extract the data-src attribute from each img
-      images.forEach((img) => {
-        const dataSrc = img.getAttribute('data-src');
-        if (dataSrc) {
-          srcArray.push(dataSrc);
-        }
-      });
-
-      return srcArray;
-    }, htmlContent);
+    return imageUrls;
   } catch (error) {
     console.error('Error fetching images:', error.message);
   }
