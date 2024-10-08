@@ -26,6 +26,12 @@ const startParsing = async (url, showProgress, sendFile) => {
 
 const createAndNavigateTo = async (url) => {
   try {
+    console.log('jar', jar)
+    await client.get('https://manga.in.ua/', {
+      headers: headers,
+    });
+
+    console.log('jar', jar)
     const res = await client.get(url, {
       headers: headers,
     });
