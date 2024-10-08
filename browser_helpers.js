@@ -4,19 +4,49 @@ const fs = require('fs');
 const axios = require('axios');
 const { headers } = require('./helpers');
 const { SocksProxyAgent } = require('socks-proxy-agent');
+const jsdom = require('jsdom');
 
 const proxyOptions = `socks5://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_ADDRESS}:${process.env.PROXY_PORT}`;
 const httpsAgent = new SocksProxyAgent(proxyOptions);
 
 axios.defaults.withCredentials = true;
 
-const client = 
-  axios.create({
-    httpAgent: httpsAgent,
-  })
+const client = axios.create({
+  httpAgent: httpsAgent,
+});
 
-const startParsing = async (url, showProgress, sendFile, sendError) => {
-  
+const startParsingSelected = async (
+  url,
+  fromChapter,
+  toChapter,
+  showProgress,
+  sendFile,
+  sendError
+) => {
+  const { html } = await createAndNavigateTo(url, sendError);
+
+  const options = await getRequiredDataFromChapters(html, sendError);
+
+  const chaptersUrls = await getChaptersUrls(
+    url,
+    fromChapter,
+    toChapter,
+    options
+  );
+
+  console.log('chaptersUrls', chaptersUrls);
+  for (let i = 0; i <= chaptersUrls.length - 1; i++) {
+    await startParsing(chaptersUrls[i], showProgress, sendFile, sendError, true);
+  }
+};
+
+const startParsing = async (
+  url,
+  showProgress,
+  sendFile,
+  sendError,
+  ignoreLogs = false
+) => {
   const { html } = await createAndNavigateTo(url, sendError);
 
   const { newsId, siteLoginHash, mangaName } = await getRequiredData(
@@ -30,10 +60,11 @@ const startParsing = async (url, showProgress, sendFile, sendError) => {
     imageUrls,
     showProgress,
     mangaName,
-    sendError
+    sendError,
+    ignoreLogs
   );
 
-  sendFile(filePath);
+  await sendFile(filePath);
 };
 
 const createAndNavigateTo = async (url, sendError) => {
@@ -44,6 +75,8 @@ const createAndNavigateTo = async (url, sendError) => {
     });
     console.log('Starting parsing...');
     const html = res.data;
+
+    fs.writeFileSync('page.html', html);
 
     return { html };
   } catch (error) {
@@ -80,6 +113,27 @@ const getRequiredData = async (pageContent, sendError) => {
   }
 };
 
+const getRequiredDataFromChapters = async (pageContent, sendError) => {
+  try {
+    // Use a regex to find the site_login_hash directly from the HTML
+    const match = pageContent.match(/var\s+site_login_hash\s*=\s*'([^']+)'/);
+    const user_hash = match ? match[1] : null;
+
+    // get attribute data-ratig-layer-id=
+    const newsIdMatch = pageContent.match(/data-vote-num-id="(\d+)"/);
+    const news_id = newsIdMatch ? newsIdMatch[1] : null;
+
+    // get attribtue data-news_category=
+    const newsCategory = pageContent.match(/data-news_category="([^"]+)"/);
+    const news_category = newsCategory ? newsCategory[1] : null;
+
+    return { news_id, user_hash, news_category };
+  } catch (error) {
+    console.error('Error getting required data:', error.message);
+    sendError(error.message);
+  }
+};
+
 const getImages = async (newsId, siteLoginHash, sendError) => {
   let imageUrls = [];
 
@@ -106,7 +160,13 @@ const getImages = async (newsId, siteLoginHash, sendError) => {
   return imageUrls;
 };
 
-const createPDFFile = async (imageUrls, showProgress, mangaName, sendError) => {
+const createPDFFile = async (
+  imageUrls,
+  showProgress,
+  mangaName,
+  sendError,
+  ignoreLogs
+) => {
   try {
     // Create a PDF document
     const doc = new PDFDocument();
@@ -115,7 +175,10 @@ const createPDFFile = async (imageUrls, showProgress, mangaName, sendError) => {
 
     let current = 1;
     const total = imageUrls.length;
-    const updateProgress = await showProgress();
+    let updateProgress;
+    if (!ignoreLogs) {
+      updateProgress = await showProgress();
+    }
     for (const url of imageUrls) {
       const imageBuffer = await downloadImage(url);
 
@@ -128,7 +191,7 @@ const createPDFFile = async (imageUrls, showProgress, mangaName, sendError) => {
       });
 
       // update progress only every 2 seconds
-      if (current % 5 === 0) {
+      if (current % 5 === 0 && !ignoreLogs) {
         updateProgress(current, total);
       }
 
@@ -139,7 +202,10 @@ const createPDFFile = async (imageUrls, showProgress, mangaName, sendError) => {
         doc.addPage({ size: 'A5', margin: 0 });
       }
     }
-    updateProgress('DONE');
+
+    if (!ignoreLogs) {
+      updateProgress('DONE');
+    }
 
     // Finalize the PDF and end the stream
     doc.end();
@@ -169,10 +235,64 @@ async function downloadImage(url) {
   return response.data;
 }
 
+const getChaptersUrls = async (url, fromChapter, toChapter, settings) => {
+  try {
+    console.log('settings', settings);
+
+    const formData = new FormData();
+    formData.append('news_id', settings.news_id);
+    formData.append('user_hash', settings.user_hash);
+    formData.append('news_category', settings.news_category);
+    formData.append('action', 'show');
+    formData.append('this_link', '');
+
+    const res = await client.post(
+      'https://manga.in.ua/engine/ajax/controller.php?mod=load_chapters',
+      formData,
+      {
+        headers: {
+          ...headers,
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
+    const html = res.data;
+
+    // save file
+    fs.writeFileSync('test.html', html);
+
+    const dom = await new jsdom.JSDOM(res.data);
+
+    const document = dom.window.document;
+
+    const chapterUrls = document.querySelectorAll('.ltcitems a');
+
+    const chapterUrlsArray = Array.from(chapterUrls);
+    console.log(
+      'chapterUrls:',
+      chapterUrlsArray.map((link) => link.href)
+    );
+
+    // crop the array to the selected chapters
+    const selectedChapters = chapterUrlsArray.slice(fromChapter - 1, toChapter);
+
+    console.log(
+      'selectedChapters:',
+      selectedChapters.map((link) => link.href)
+    );
+
+    return selectedChapters.map((link) => link.href);
+  } catch (error) {
+    console.error('Error fetching page:', error.message);
+    sendError(error.message);
+  }
+};
+
 module.exports = {
   createAndNavigateTo,
   getRequiredData,
   getImages,
   createPDFFile,
   startParsing,
+  startParsingSelected,
 };

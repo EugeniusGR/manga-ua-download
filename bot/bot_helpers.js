@@ -1,5 +1,5 @@
 // import json with commands
-const { startParsing } = require('../browser_helpers');
+const { startParsing, startParsingSelected } = require('../browser_helpers');
 const commands = require('./commands.json');
 const fs = require('fs');
 
@@ -7,6 +7,12 @@ const getMessage = async (msg, bot) => {
   switch (true) {
     case msg.text.includes('/start'):
       handleStart(msg, bot);
+      break;
+    case msg.text.includes('/help'):
+      handleStart(msg, bot);
+      break;
+    case msg.text.includes('/parse_selected'):
+      handleStartSelected(msg, bot);
       break;
     case msg.text.includes('/parse'):
       // get url from parse
@@ -29,6 +35,27 @@ const getMessage = async (msg, bot) => {
 const setCommands = async (bot) => {
   await bot.setMyCommands(commands);
 };
+
+const handleStartSelected = async (msg, bot) => {
+  const fromChapter = msg.text.split(' ')[2];
+  const toChapter = msg.text.split(' ')[3];
+  const url = msg.text.split(' ')[1];
+  console.log('fromChapter:', fromChapter);
+  console.log('toChapter:', toChapter);
+  if (url) {
+    await bot.sendMessage(msg.chat.id, `Починаю парсинг ${url}...`);
+    startParsingSelected(
+      url,
+      fromChapter,
+      toChapter,
+      () => showProgress(bot, msg.chat.id),
+      (filePath) => sendFile(bot, msg.chat.id, filePath),
+      (message) => sendError(bot, msg.chat.id, message)
+    );
+  } else {
+    sendError(bot, msg.chat.id, 'Помилка: некоректне посилання!');
+  }
+}
 
 const updateProgress = async (chatId, bot, messageId, current, total) => {
   try {
@@ -87,7 +114,7 @@ const showProgress = async (bot, chatId) => {
 
 const finishParse = async () => {
   try {
-    console.log('DONE')
+    console.log('DONE');
   } catch (error) {
     console.warn('Error finishing parse:', error);
   }
