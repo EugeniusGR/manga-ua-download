@@ -16,7 +16,8 @@ const getMessage = async (msg, bot) => {
         startParsing(
           url,
           () => showProgress(bot, msg.chat.id),
-          (filePath) => sendFile(bot, msg.chat.id, filePath)
+          (filePath) => sendFile(bot, msg.chat.id, filePath),
+          (message) => sendError(bot, msg.chat.id, message)
         );
       } else {
         sendError(bot, msg.chat.id, 'Помилка: некоректне посилання!');
@@ -35,6 +36,8 @@ const updateProgress = async (chatId, bot, messageId, current, total) => {
       chat_id: chatId,
       message_id: messageId,
     });
+    // same in console
+    console.log(`Парсинг... ${current}/${total}`);
   } catch (error) {
     console.warn('Error updating progress:', error);
   }

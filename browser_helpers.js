@@ -2,70 +2,85 @@ const path = require('path');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const axios = require('axios');
-const { CookieJar } = require('tough-cookie');
-const { wrapper } = require('axios-cookiejar-support');
 const { headers } = require('./helpers');
+const { SocksProxyAgent } = require('socks-proxy-agent');
 
-axios.defaults.withCredentials = true
+const proxyOptions = `socks5://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_ADDRESS}:${process.env.PROXY_PORT}`;
+const httpsAgent = new SocksProxyAgent(proxyOptions);
 
-const jar = new CookieJar();
-const client = wrapper(axios.create({ jar }));
+axios.defaults.withCredentials = true;
 
+const client = 
+  axios.create({
+    httpAgent: httpsAgent,
+  })
 
-const startParsing = async (url, showProgress, sendFile) => {
-  const { html } = await createAndNavigateTo(url);
+const startParsing = async (url, showProgress, sendFile, sendError) => {
+  
+  const { html } = await createAndNavigateTo(url, sendError);
 
-  const { newsId, siteLoginHash, mangaName } = await getRequiredData(html);
+  const { newsId, siteLoginHash, mangaName } = await getRequiredData(
+    html,
+    sendError
+  );
 
-  const imageUrls = await getImages(newsId, siteLoginHash);
+  const imageUrls = await getImages(newsId, siteLoginHash, sendError);
 
-  const filePath = await createPDFFile(imageUrls, showProgress, mangaName);
+  const filePath = await createPDFFile(
+    imageUrls,
+    showProgress,
+    mangaName,
+    sendError
+  );
 
   sendFile(filePath);
 };
 
-const createAndNavigateTo = async (url) => {
+const createAndNavigateTo = async (url, sendError) => {
   try {
-    console.log('jar', jar)
-    await client.get('https://manga.in.ua/', {
-      headers: headers,
-    });
-
-    console.log('jar', jar)
+    console.log('Starting parsing...');
     const res = await client.get(url, {
       headers: headers,
     });
+    console.log('Starting parsing...');
     const html = res.data;
 
     return { html };
   } catch (error) {
     console.error('Error fetching page:', error.message);
-    return { error: error.message };
+    sendError(error.message);
   }
 };
 
-const getRequiredData = async (pageContent) => {
-  // Use a regex to find the site_login_hash directly from the HTML
-  const match = pageContent.match(/var\s+site_login_hash\s*=\s*'([^']+)'/);
-  const siteLoginHash = match ? match[1] : null;
+const getRequiredData = async (pageContent, sendError) => {
+  try {
+    // Use a regex to find the site_login_hash directly from the HTML
+    const match = pageContent.match(/var\s+site_login_hash\s*=\s*'([^']+)'/);
+    const siteLoginHash = match ? match[1] : null;
 
-  console.log('site_login_hash:', siteLoginHash);
+    console.log('site_login_hash:', siteLoginHash);
 
-  // find the 'data-news_id= in html and get the value
-  const newsIdMatch = pageContent.match(/<a[^>]*href="javascript:AddComplaint\('(\d+)', 'news'\)">/);
-  const newsId = newsIdMatch ? newsIdMatch[1] : null;
+    // find the 'data-news_id= in html and get the value
+    const newsIdMatch = pageContent.match(
+      /<a[^>]*href="javascript:AddComplaint\('(\d+)', 'news'\)">/
+    );
+    const newsId = newsIdMatch ? newsIdMatch[1] : null;
 
-  console.log('data-news_id:', newsId);
+    console.log('data-news_id:', newsId);
 
-  // get page's title
-  const title = pageContent.match(/<title>(.*?)<\/title>/)[1];
-  const mangaName = sanitizePath(title.split(' читати українською')[0]);
-  console.log('mangaName', mangaName);
+    // get page's title
+    const title = pageContent.match(/<title>(.*?)<\/title>/)[1];
+    const mangaName = sanitizePath(title.split(' читати українською')[0]);
+    console.log('mangaName', mangaName);
 
-  return { newsId, siteLoginHash, mangaName };
+    return { newsId, siteLoginHash, mangaName };
+  } catch (error) {
+    console.error('Error getting required data:', error.message);
+    sendError(error.message);
+  }
 };
 
-const getImages = async (newsId, siteLoginHash) => {
+const getImages = async (newsId, siteLoginHash, sendError) => {
   let imageUrls = [];
 
   try {
@@ -85,51 +100,57 @@ const getImages = async (newsId, siteLoginHash) => {
     return imageUrls;
   } catch (error) {
     console.error('Error fetching images:', error.message);
+    sendError(error.message);
   }
 
   return imageUrls;
 };
 
-const createPDFFile = async (imageUrls, showProgress, mangaName) => {
-  // Create a PDF document
-  const doc = new PDFDocument();
-  const pdfPath = path.join(__dirname, `${mangaName}.pdf`);
-  doc.pipe(fs.createWriteStream(pdfPath));
+const createPDFFile = async (imageUrls, showProgress, mangaName, sendError) => {
+  try {
+    // Create a PDF document
+    const doc = new PDFDocument();
+    const pdfPath = path.join(__dirname, `${mangaName}.pdf`);
+    doc.pipe(fs.createWriteStream(pdfPath));
 
-  let current = 1;
-  const total = imageUrls.length;
-  const updateProgress = await showProgress();
-  for (const url of imageUrls) {
-    const imageBuffer = await downloadImage(url);
+    let current = 1;
+    const total = imageUrls.length;
+    const updateProgress = await showProgress();
+    for (const url of imageUrls) {
+      const imageBuffer = await downloadImage(url);
 
-    // Add the image to the PDF, resizing it to fit within A5 dimensions
-    const { width, height } = doc.page;
-    doc.image(imageBuffer, 0, 0, {
-      fit: [width, height],
-      align: 'center',
-      valign: 'center',
-    });
+      // Add the image to the PDF, resizing it to fit within A5 dimensions
+      const { width, height } = doc.page;
+      doc.image(imageBuffer, 0, 0, {
+        fit: [width, height],
+        align: 'center',
+        valign: 'center',
+      });
 
-    // update progress only every 2 seconds
-    if (current % 5 === 0) {
-      updateProgress(current, total);
+      // update progress only every 2 seconds
+      if (current % 5 === 0) {
+        updateProgress(current, total);
+      }
+
+      current++;
+
+      // Add a new page if not the last image
+      if (current <= total) {
+        doc.addPage({ size: 'A5', margin: 0 });
+      }
     }
+    updateProgress('DONE');
 
-    current++;
+    // Finalize the PDF and end the stream
+    doc.end();
+    console.log(`\n\nPDF saved to ${pdfPath}`);
 
-    // Add a new page if not the last image
-    if (current <= total) {
-      doc.addPage({ size: 'A5', margin: 0 });
-    }
+    // return path
+    return pdfPath;
+  } catch (error) {
+    console.error('Error creating PDF:', error.message);
+    sendError(error.message);
   }
-  updateProgress('DONE');
-
-  // Finalize the PDF and end the stream
-  doc.end();
-  console.log(`\n\nPDF saved to ${pdfPath}`);
-
-  // return path
-  return pdfPath;
 };
 
 function sanitizePath(input) {
