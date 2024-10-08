@@ -1,54 +1,52 @@
 const path = require('path');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
-const axios = require('axios');
 const { headers } = require('./helpers');
-const { SocksProxyAgent } = require('socks-proxy-agent');
-
-const proxyOptions = `socks5://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_ADDRESS}:${process.env.PROXY_PORT}`;
-const httpsAgent = new SocksProxyAgent(proxyOptions);
-
-axios.defaults.withCredentials = true;
-
-const client = 
-  axios.create({
-    httpAgent: httpsAgent,
-  })
+const puppeteer = require('puppeteer');
+require('dotenv').config();
 
 const startParsing = async (url, showProgress, sendFile, sendError) => {
   
-  const { html } = await createAndNavigateTo(url, sendError);
+  const { html, page } = await createAndNavigateTo(url, sendError);
 
   const { newsId, siteLoginHash, mangaName } = await getRequiredData(
     html,
-    sendError
+    sendError,
   );
 
-  const imageUrls = await getImages(newsId, siteLoginHash, sendError);
+  const imageUrls = await getImages(newsId, siteLoginHash, sendError, page);
 
   const filePath = await createPDFFile(
     imageUrls,
     showProgress,
     mangaName,
-    sendError
+    sendError,
+    page
   );
 
   sendFile(filePath);
 };
 
 const createAndNavigateTo = async (url, sendError) => {
+  
   try {
-    console.log('Starting parsing...');
-    const res = await client.get(url, {
-      headers: headers,
+    const browser = await puppeteer.launch({
+      executablePath: process.env.NODE_ENV === 'production' ? process.env.EXECUTABLE_PATH : puppeteer.executablePath(),
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--single-process', '--no-zygote'],
     });
-    console.log('Starting parsing...');
-    const html = res.data;
+    const page = await browser.newPage();
+    await page.setExtraHTTPHeaders({
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      ...headers, // add any custom headers you have here
+    });
+    await page.goto(url, { waitUntil: 'networkidle0' });
 
-    return { html };
+    const res = await page.content();
+
+    return { html: res, page };
   } catch (error) {
     console.error('Error fetching page:', error.message);
-    sendError(error.message);
+    sendError(error);
   }
 };
 
@@ -80,18 +78,13 @@ const getRequiredData = async (pageContent, sendError) => {
   }
 };
 
-const getImages = async (newsId, siteLoginHash, sendError) => {
+const getImages = async (newsId, siteLoginHash, sendError, page) => {
   let imageUrls = [];
 
   try {
-    const response = await client.get(
-      `https://manga.in.ua/engine/ajax/controller.php?mod=load_chapters_image&news_id=${newsId}&action=show&user_hash=${siteLoginHash}`,
-      {
-        headers: headers,
-      }
-    );
-
-    const htmlContent = response.data;
+    await page.goto(`https://manga.in.ua/engine/ajax/controller.php?mod=load_chapters_image&news_id=${newsId}&action=show&user_hash=${siteLoginHash}`)
+    const response = await page.content();
+    const htmlContent = response;
 
     const imageUrls = htmlContent
       .match(/data-src="([^"]+)"/g)
@@ -106,7 +99,7 @@ const getImages = async (newsId, siteLoginHash, sendError) => {
   return imageUrls;
 };
 
-const createPDFFile = async (imageUrls, showProgress, mangaName, sendError) => {
+const createPDFFile = async (imageUrls, showProgress, mangaName, sendError, page) => {
   try {
     // Create a PDF document
     const doc = new PDFDocument();
@@ -117,7 +110,7 @@ const createPDFFile = async (imageUrls, showProgress, mangaName, sendError) => {
     const total = imageUrls.length;
     const updateProgress = await showProgress();
     for (const url of imageUrls) {
-      const imageBuffer = await downloadImage(url);
+      const imageBuffer = await downloadImage(url, page);
 
       // Add the image to the PDF, resizing it to fit within A5 dimensions
       const { width, height } = doc.page;
@@ -161,12 +154,12 @@ function sanitizePath(input) {
   return input.replace(invalidCharsRegex, '');
 }
 
-async function downloadImage(url) {
-  const response = await client.get(url, {
-    responseType: 'arraybuffer',
-    headers: headers,
-  });
-  return response.data;
+async function downloadImage(url, page) {
+  const response = await page.goto(url, { waitUntil: 'networkidle0' });
+
+  const imageBuffer = await response.buffer();
+
+  return imageBuffer;
 }
 
 module.exports = {
