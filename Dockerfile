@@ -1,10 +1,10 @@
 FROM ghcr.io/puppeteer/puppeteer:23.5.1
 
+RUN apt-get update && apt-get install -y \
+    google-chrome-stable
+
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome
-
-RUN apt-get update && \
-    apt-get install -y libc6
 
 
 WORKDIR /usr/src/app
