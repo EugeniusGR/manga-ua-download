@@ -4,6 +4,7 @@ const fs = require('fs');
 const axios = require('axios');
 const { CookieJar } = require('tough-cookie');
 const { wrapper } = require('axios-cookiejar-support');
+const { headers } = require('./helpers');
 
 axios.defaults.withCredentials = true
 
@@ -26,14 +27,9 @@ const startParsing = async (url, showProgress, sendFile) => {
 const createAndNavigateTo = async (url) => {
   try {
     const res = await client.get(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-      },
+      headers: headers,
     });
     const html = res.data;
-
-    console.log('res', res)
 
     return { html };
   } catch (error) {
@@ -50,7 +46,8 @@ const getRequiredData = async (pageContent) => {
   console.log('site_login_hash:', siteLoginHash);
 
   // find the 'data-news_id= in html and get the value
-  const newsId = pageContent.match(/data-news_id="(\d+)"/)[1];
+  const newsIdMatch = pageContent.match(/<a[^>]*href="javascript:AddComplaint\('(\d+)', 'news'\)">/);
+  const newsId = newsIdMatch ? newsIdMatch[1] : null;
 
   console.log('data-news_id:', newsId);
 
@@ -69,10 +66,7 @@ const getImages = async (newsId, siteLoginHash) => {
     const response = await client.get(
       `https://manga.in.ua/engine/ajax/controller.php?mod=load_chapters_image&news_id=${newsId}&action=show&user_hash=${siteLoginHash}`,
       {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        },
+        headers: headers,
       }
     );
 
@@ -143,10 +137,7 @@ function sanitizePath(input) {
 async function downloadImage(url) {
   const response = await client.get(url, {
     responseType: 'arraybuffer',
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    },
+    headers: headers,
   });
   return response.data;
 }
