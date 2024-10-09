@@ -30,7 +30,7 @@ const client = wrapper(
 );
 
 const createAndReportResponse = async (response, sendFile) => {
-  fs.writeFileSync('response.html', response.data);
+  fs.writeFileSync('response.html', response);
   sendFile('response.html');
 }
 
