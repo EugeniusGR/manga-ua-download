@@ -30,8 +30,9 @@ const client = wrapper(
 );
 
 const createAndReportResponse = async (response, sendFile) => {
-  fs.writeFileSync('response.html', response);
-  sendFile('response.html');
+  fs.writeFileSync("programming.txt", response);
+
+  sendFile("programming.txt");
 }
 
 const startParsingSelected = async (
