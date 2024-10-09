@@ -18,6 +18,14 @@ const client = wrapper(
   axios.create({
     // httpsAgent,
     withCredentials: true,
+    proxy: {
+      host: process.env.PROXY_ADDRESS,
+      port: process.env.PROXY_PORT,
+      auth: {
+        username: process.env.PROXY_USERNAME,
+        password: process.env.PROXY_PASSWORD,
+      },
+    }
   })
 );
 
