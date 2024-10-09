@@ -11,6 +11,11 @@
   },
   {
 
+      "command": "parse_selected",
+      "description": "Отримати pdf файл з мангою"
+  },
+  {
+
       "command": "help",
       "description": "Як працює"
   }

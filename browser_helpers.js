@@ -151,7 +151,7 @@ const getImages = async (newsId, siteLoginHash, sendError) => {
       .match(/data-src="([^"]+)"/g)
       .map((src) => src.match(/data-src="([^"]+)"/)[1]);
 
-    return imageUrls;
+    return imageUrls.filter((url) => !url.includes('noimage.jpg'));
   } catch (error) {
     console.error('Error fetching images:', error.message);
     sendError(error.message);
@@ -169,7 +169,10 @@ const createPDFFile = async (
 ) => {
   try {
     // Create a PDF document
-    const doc = new PDFDocument();
+    const doc = new PDFDocument({
+      size: 'A5',
+      margin: 0,
+    });
     const pdfPath = path.join(__dirname, `${mangaName}.pdf`);
     doc.pipe(fs.createWriteStream(pdfPath));
 
@@ -179,6 +182,24 @@ const createPDFFile = async (
     if (!ignoreLogs) {
       updateProgress = await showProgress();
     }
+
+    doc
+      .fontSize(28)
+      .font('fonts/Play.ttf')
+      .text(mangaName.split('-')[0], 0, 200, {
+        align: 'center',
+      })
+      .fontSize(28)
+      .font('fonts/Play.ttf')
+      .text(mangaName.split('-')[1], 0, 250, {
+        align: 'center',
+      })
+      .fontSize(20)
+      .font('fonts/Play.ttf').text(mangaName.split('-')[2], 0, 300, {
+        align: 'center',
+      });
+
+    doc.addPage({ size: 'A5', margin: 0 });
     for (const url of imageUrls) {
       const imageBuffer = await downloadImage(url);
 
