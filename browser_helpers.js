@@ -29,6 +29,11 @@ const client = wrapper(
   })
 );
 
+const createAndReportResponse = async (response, sendFile) => {
+  fs.writeFileSync('response.html', response.data);
+  sendFile('response.html');
+}
+
 const startParsingSelected = async (
   url,
   fromChapter,
@@ -88,15 +93,17 @@ const startParsing = async (
 };
 
 const createAndNavigateTo = async (url, sendError) => {
+  let res;
   try {
     console.log('Starting parsing...');
-    const res = await makeRequestWithCookies(url);
+    res = await makeRequestWithCookies(url);
     console.log('Starting parsing...');
     const html = res;
 
     return { html };
   } catch (error) {
     console.error('Error fetching page:', error.message);
+    createAndReportResponse(res, sendError);
     sendError(error.message);
   }
 };
