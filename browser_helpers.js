@@ -2,18 +2,24 @@ const path = require('path');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const axios = require('axios');
-const { headers } = require('./helpers');
+const { getHeaders } = require('./helpers');
 const { SocksProxyAgent } = require('socks-proxy-agent');
 const jsdom = require('jsdom');
+const { CookieJar } = require('tough-cookie');
+const { wrapper } = require('axios-cookiejar-support');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
-const proxyOptions = `socks5://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_ADDRESS}:${process.env.PROXY_PORT}`;
-const httpsAgent = new SocksProxyAgent(proxyOptions);
+const proxyUrl = `http://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_ADDRESS}:${process.env.PROXY_PORT}`;
+const httpsAgent = new HttpsProxyAgent(proxyUrl);
 
-axios.defaults.withCredentials = true;
+const jar = new CookieJar();
 
-const client = axios.create({
-  httpAgent: httpsAgent,
-});
+const client = wrapper(
+  axios.create({
+    // httpsAgent,
+    withCredentials: true,
+  })
+);
 
 const startParsingSelected = async (
   url,
@@ -36,7 +42,13 @@ const startParsingSelected = async (
 
   console.log('chaptersUrls', chaptersUrls);
   for (let i = 0; i <= chaptersUrls.length - 1; i++) {
-    await startParsing(chaptersUrls[i], showProgress, sendFile, sendError, true);
+    await startParsing(
+      chaptersUrls[i],
+      showProgress,
+      sendFile,
+      sendError,
+      true
+    );
   }
 };
 
@@ -70,13 +82,9 @@ const startParsing = async (
 const createAndNavigateTo = async (url, sendError) => {
   try {
     console.log('Starting parsing...');
-    const res = await client.get(url, {
-      headers: headers,
-    });
+    const res = await makeRequestWithCookies(url);
     console.log('Starting parsing...');
-    const html = res.data;
-
-    fs.writeFileSync('page.html', html);
+    const html = res;
 
     return { html };
   } catch (error) {
@@ -137,21 +145,20 @@ const getRequiredDataFromChapters = async (pageContent, sendError) => {
 const getImages = async (newsId, siteLoginHash, sendError) => {
   let imageUrls = [];
 
-  try {
-    const response = await client.get(
-      `https://manga.in.ua/engine/ajax/controller.php?mod=load_chapters_image&news_id=${newsId}&action=show&user_hash=${siteLoginHash}`,
-      {
-        headers: headers,
-      }
-    );
+  const url = `https://manga.in.ua/engine/ajax/controller.php?mod=load_chapters_image&news_id=${newsId}&action=show&user_hash=${siteLoginHash}`;
 
-    const htmlContent = response.data;
+  try {
+    const response = await makeRequestWithCookies(url);
+
+    const htmlContent = response;
 
     const imageUrls = htmlContent
       .match(/data-src="([^"]+)"/g)
       .map((src) => src.match(/data-src="([^"]+)"/)[1]);
 
-    return imageUrls.filter((url) => !url.includes('noimage.jpg'));
+    return imageUrls.filter(
+      (url) => !url.includes('noimage.jpg') && !url.includes('_vizytka.png')
+    );
   } catch (error) {
     console.error('Error fetching images:', error.message);
     sendError(error.message);
@@ -195,7 +202,8 @@ const createPDFFile = async (
         align: 'center',
       })
       .fontSize(20)
-      .font('fonts/Play.ttf').text(mangaName.split('-')[2], 0, 300, {
+      .font('fonts/Play.ttf')
+      .text(mangaName.split('-')[2], 0, 300, {
         align: 'center',
       });
 
@@ -249,11 +257,9 @@ function sanitizePath(input) {
 }
 
 async function downloadImage(url) {
-  const response = await client.get(url, {
-    responseType: 'arraybuffer',
-    headers: headers,
-  });
-  return response.data;
+  const response = await makeRequestWithCookies(url, {}, 'arraybuffer');
+
+  return response;
 }
 
 const getChaptersUrls = async (url, fromChapter, toChapter, settings) => {
@@ -267,21 +273,27 @@ const getChaptersUrls = async (url, fromChapter, toChapter, settings) => {
     formData.append('action', 'show');
     formData.append('this_link', '');
 
+    const headers = {
+      ...getHeaders({ refer: url }),
+      'Content-Type': 'multipart/form-data',
+    };
+
+    const cookieHeader = getCookies(url);
+    if (cookieHeader) {
+      headers['Cookie'] = cookieHeader;
+    }
+
     const res = await client.post(
       'https://manga.in.ua/engine/ajax/controller.php?mod=load_chapters',
       formData,
       {
-        headers: {
-          ...headers,
-          'Content-Type': 'multipart/form-data',
-        },
+        headers,
       }
     );
+    setCookies(url, res.headers);
     const html = res.data;
 
     // save file
-    fs.writeFileSync('test.html', html);
-
     const dom = await new jsdom.JSDOM(res.data);
 
     const document = dom.window.document;
@@ -308,6 +320,61 @@ const getChaptersUrls = async (url, fromChapter, toChapter, settings) => {
     sendError(error.message);
   }
 };
+
+// Function to set cookies into the jar from the response headers
+function setCookies(url, headers) {
+  if (headers['set-cookie']) {
+    headers['set-cookie'].forEach((cookie) => {
+      jar.setCookieSync(cookie, url);
+    });
+  }
+}
+
+function getCookies(url) {
+  return jar.getCookieStringSync(url);
+}
+
+// Function to make a request with cookies and custom proxy
+async function makeRequestWithCookies(
+  url,
+  headersProp = {},
+  responseType = 'json'
+) {
+  try {
+    const headers = {
+      ...getHeaders({ refer: url }),
+      'Content-Type': 'multipart/form-data',
+      ...headersProp,
+    };
+    // Get cookies from the jar
+    const cookieHeader = getCookies(url);
+    if (cookieHeader) {
+      headers['Cookie'] = cookieHeader;
+    }
+
+    const response = await client
+      .get(url, {
+        headers,
+        responseType,
+        timeout: 10000,
+      })
+      .catch((error) => {
+        console.error('Request failed:', error);
+        throw error;
+      });
+    // save img
+
+    if (responseType === 'json') {
+      // Update the jar with any new cookies from the response
+      setCookies(url, response.headers);
+    }
+
+    return response.data;
+  } catch (error) {
+    console.error('Request failed:', error.message);
+    throw error;
+  }
+}
 
 module.exports = {
   createAndNavigateTo,
