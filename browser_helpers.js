@@ -196,6 +196,11 @@ const createPDFFile = async (
       size: 'A5',
       margin: 0,
     });
+    doc.info.Author = 'manga.in.ua';
+    doc.info.Title = mangaName;
+    doc.info.Subject = 'manga';
+    doc.info.Creator = 'manga.in.ua';
+    doc.info.CreationDate = new Date();
     const pdfPath = path.join(__dirname, `${mangaName}.pdf`);
     doc.pipe(fs.createWriteStream(pdfPath));
 
@@ -224,12 +229,15 @@ const createPDFFile = async (
       });
 
     doc.addPage({ size: 'A5', margin: 0 });
+    let index = 0;
     for (const url of imageUrls) {
       const imageBuffer = await downloadImage(url);
 
       // Add the image to the PDF, resizing it to fit within A5 dimensions
       const { width, height } = doc.page;
-      doc.image(imageBuffer, 0, 0, {
+      const isEvenPage = index % 2 === 0;
+      const pageMargin = isEvenPage ? 20 : -5;
+      doc.image(imageBuffer, pageMargin, 0, {
         fit: [width, height],
         align: 'center',
         valign: 'center',
@@ -246,6 +254,7 @@ const createPDFFile = async (
       if (current <= total) {
         doc.addPage({ size: 'A5', margin: 0 });
       }
+      index++;
     }
 
     if (!ignoreLogs) {
